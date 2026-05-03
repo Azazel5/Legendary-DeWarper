@@ -2,10 +2,10 @@
 #SBATCH --job-name=p_a_d2_h100
 #SBATCH --time=10:00:00
 #
-# Replace with your site's H100 partition / account / qos:
-#SBATCH --partition=REPLACE_H100_PARTITION
-#SBATCH --account=REPLACE_ACCOUNT
+# H100 is available in the preempt partition on this cluster.
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=h100
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
 #SBATCH --output=slurm-phase-a-h100-%j.out

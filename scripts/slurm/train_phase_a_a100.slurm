@@ -2,10 +2,10 @@
 #SBATCH --job-name=p_a_d2_a100
 #SBATCH --time=10:00:00
 #
-# Replace with your site's A100 partition / account / qos:
-#SBATCH --partition=REPLACE_A100_PARTITION
-#SBATCH --account=REPLACE_ACCOUNT
+# A100 is available in gpu/preempt; use preempt and pin to 80GB cards.
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=a100-80G
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --output=slurm-phase-a-a100-%j.out
