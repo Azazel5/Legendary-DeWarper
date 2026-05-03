@@ -1,12 +1,11 @@
 """Image metrics in [0,1] space after ImageNet denormalization."""
-from pytorch_msssim import ms_ssim, ssim
-
 from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
+from pytorch_msssim import ms_ssim, ssim
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
