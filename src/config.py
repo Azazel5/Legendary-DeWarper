@@ -26,7 +26,7 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Phase A DINOv2 document dewarp training")
     p.add_argument("--config", type=str, default=None, help="Path to YAML config")
     p.add_argument("--data-dir", type=str, default=None)
-    p.add_argument("--output-root", type=str, default=None, help="experiments/phase_a/<loss_slug>/runs parent")
+    p.add_argument("--output-root", type=str, default=None, help="Root for experiments/phase_a/... (default: experiments/)")
     p.add_argument("--loss-slug", type=str, default=None)
     p.add_argument("--run-version", type=str, default=None, help="Subfolder under runs/; auto if omitted")
     p.add_argument("--resume", type=str, default=None, help="Path to last.pt or epoch checkpoint")
@@ -36,12 +36,6 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--model-id", type=str, default=None)
     p.add_argument("--device", type=str, default=None)
-    p.add_argument(
-        "--output-root",
-        type=str,
-        default=None,
-        help="Root for experiments/phase_a/... (default: experiments/)",
-    )
     return p.parse_args(argv)
 
 
@@ -64,7 +58,6 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "seed": args.seed,
         "model_id": args.model_id,
         "device": args.device,
-        "output_root": args.output_root,
     }
     cfg = merge_dict(cfg, {k: v for k, v in overrides.items() if v is not None})
 

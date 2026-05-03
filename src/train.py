@@ -20,7 +20,6 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
 
 # Project root (parent of src/)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -85,7 +84,7 @@ def atomic_torch_save(obj: Any, path: Path) -> None:
     os.replace(tmp, path)
 
 
-def load_checkpoint(path: Path, model: nn.Module, optimizer: torch.optim.Optimizer, scaler: Optional[GradScaler]) -> Dict[str, Any]:
+def load_checkpoint(path: Path, model: nn.Module, optimizer: torch.optim.Optimizer, scaler: Optional[torch.amp.GradScaler]) -> Dict[str, Any]:
     kw = {"map_location": "cpu"}
     try:
         ckpt = torch.load(path, **kw, weights_only=False)
@@ -103,7 +102,7 @@ def train_one_epoch(
     loader,
     criterion: UVReconstructionLoss,
     optimizer: torch.optim.Optimizer,
-    scaler: Optional[GradScaler],
+    scaler: Optional[torch.amp.GradScaler],
     device: torch.device,
     amp_dtype: torch.dtype,
     grad_clip: float,
@@ -124,7 +123,7 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         if use_cuda_amp:
-            with autocast(dtype=amp_dtype):
+            with torch.amp.autocast(device_type="cuda", dtype=amp_dtype):
                 out = model(rgb)
         else:
             out = model(rgb)
@@ -188,8 +187,8 @@ def validate(
         mask = batch["uv_mask"].to(device, non_blocking=True)
 
         if use_cuda_amp:
-            with autocast(dtype=amp_dtype):
-                out = model(rgb)
+                with torch.amp.autocast(device_type="cuda", dtype=amp_dtype):
+                    out = model(rgb)
         else:
             out = model(rgb)
         dewarped = out["dewarped"]
@@ -284,7 +283,7 @@ def main(argv: Optional[list] = None) -> None:
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr, weight_decay=wd)
 
     use_cuda_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
-    scaler = GradScaler(enabled=bool(use_cuda_amp and amp_dtype == torch.float16))
+    scaler = torch.amp.GradScaler(device_type="cuda", enabled=bool(use_cuda_amp and amp_dtype == torch.float16))
 
     start_epoch = 0
     best_metric = float("-inf")

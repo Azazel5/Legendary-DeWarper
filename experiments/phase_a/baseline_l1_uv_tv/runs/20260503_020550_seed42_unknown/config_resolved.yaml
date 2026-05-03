@@ -1,0 +1,24 @@
+phase: phase_a
+loss_slug: baseline_l1_uv_tv
+data_dir: renders/synthetic_data_pitch_sweep
+train_split: 0.8
+batch_size: 4
+num_workers: 4
+img_size:
+- 518
+- 518
+model_id: facebook/dinov2-large
+freeze_backbone_epochs: 0
+epochs: 100
+lr: 0.0001
+weight_decay: 0.01
+optimizer: adamw
+grad_clip_norm: 1.0
+reconstruction_weight: 1.0
+uv_weight: 0.5
+smoothness_weight: 0.01
+amp: true
+amp_dtype: bfloat16
+seed: 42
+eval_every_epoch: true
+primary_metric: val_ssim_masked
