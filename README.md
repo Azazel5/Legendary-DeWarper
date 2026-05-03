@@ -13,12 +13,13 @@ Learn a **geometric** dewarping model: from a **warped document RGB** (with back
 | [`dataset_loader.py`](dataset_loader.py) | `DocumentDataset`, `get_dataloaders`, ImageNet-normalized RGB/GT, optional **UV** (`[0,1]`, 2ch) and **`uv_mask`**, `UVReconstructionLoss`, `create_base_grid`, `MaskedL1Loss`, `SSIMLoss` |
 | [`uv_dewarp.py`](uv_dewarp.py) | **Upper bound:** forward-warp RGB with **GT UV** (bilinear splat + hole fill). Baseline for “what perfect UV would look like” on a sample. |
 | [`src/models/dinov2_dewarp.py`](src/models/dinov2_dewarp.py) | **Phase A model:** `facebook/dinov2-large` → conv decoder → **flow** (for `grid_sample`) + **UV** head; outputs dewarped tensor. |
+| [`src/models/phase_b_unet_dewarp.py`](src/models/phase_b_unet_dewarp.py) | **Phase B baseline:** same `facebook/dinov2-large` encoder, but a **U-Net style decoder** with internal skip connections; still predicts **flow** + **UV**. |
 | [`src/train.py`](src/train.py) | Training loop: AMP, checkpointing, resume, `metrics.jsonl`, Slurm-friendly logging. |
 | [`src/metrics.py`](src/metrics.py) | Denorm to `[0,1]`; **SSIM / MS-SSIM / PSNR** (full + masked); **UV L1** (full + masked on foreground). |
 | [`src/config.py`](src/config.py) | YAML + CLI overrides. |
 | [`configs/phase_a/baseline_l1_uv_tv.yaml`](configs/phase_a/baseline_l1_uv_tv.yaml) | Default Phase A hyperparameters. |
 | [`scripts/eval_upper_bound_sample.py`](scripts/eval_upper_bound_sample.py) | Batches: **GT-UV dewarp** vs flat GT (ceiling-style diagnostic, no trained model). |
-| [`scripts/slurm/`](scripts/slurm/) | H100 / A100 **10h** Slurm jobs. |
+| [`scripts/slurm/`](scripts/slurm/) | H100 / A100 **10h** Slurm jobs for Phase A and Phase B. |
 | [`experiments/`](experiments/) | Per-run outputs; see [`experiments/README.md`](experiments/README.md) for directory convention. |
 | [`requirements.txt`](requirements.txt) | Python dependencies. |
 
@@ -38,6 +39,16 @@ Learn a **geometric** dewarping model: from a **warped document RGB** (with back
 - **Checkpoints (every epoch):** `checkpoints/epoch_####.pt`, `last.pt` (resume), `best.pt` (highest **val_ssim_masked** by default). Atomic save to reduce corruption on wall-time kill. Run folder also gets `config_resolved.yaml` and `logs/metrics.jsonl` (one JSON object per epoch).
 - **Slurm:** [`scripts/slurm/train_phase_a_h100.slurm`](scripts/slurm/train_phase_a_h100.slurm) and [`scripts/slurm/train_phase_a_a100.slurm`](scripts/slurm/train_phase_a_a100.slurm) — **10:00:00** wall time; replace `REPLACE_*` partition/account before submitting.
 
+## Phase B (implemented baseline)
+
+Phase B keeps the same pretrained `dinov2-large` encoder and the same reconstruction / UV / TV losses and metrics, but swaps in a **U-Net style decoder** with explicit skip connections inside the decoder path.
+
+- **Model:** [`src/models/phase_b_unet_dewarp.py`](src/models/phase_b_unet_dewarp.py)
+- **Config:** [`configs/phase_b/baseline_unet_l1_uv_tv.yaml`](configs/phase_b/baseline_unet_l1_uv_tv.yaml)
+- **Slurm:** [`scripts/slurm/train_phase_b_h100.slurm`](scripts/slurm/train_phase_b_h100.slurm) and [`scripts/slurm/train_phase_b_a100.slurm`](scripts/slurm/train_phase_b_a100.slurm)
+
+Phase B uses the same `uv_mask` handling and the same evaluation script, so you can compare Phase A and Phase B with identical metrics and the same upper-bound diagnostic.
+
 ### Run training locally
 
 From the **project root** (directory containing `src/`):
@@ -45,6 +56,8 @@ From the **project root** (directory containing `src/`):
 ```bash
 pip install -r requirements.txt
 python -m src.train --config configs/phase_a/baseline_l1_uv_tv.yaml
+# or
+python -m src.train --config configs/phase_b/baseline_unet_l1_uv_tv.yaml
 ```
 
 Optional CLI overrides: `--batch-size`, `--epochs`, `--resume`, `--output-root`, `--data-dir`, etc. See [`src/config.py`](src/config.py).
@@ -61,6 +74,8 @@ Optional CLI overrides: `--batch-size`, `--epochs`, `--resume`, `--output-root`,
    ```
 
    For A100 (e.g. smaller batch): `sbatch scripts/slurm/train_phase_a_a100.slurm`
+
+   Phase B equivalents: `sbatch scripts/slurm/train_phase_b_h100.slurm` or `sbatch scripts/slurm/train_phase_b_a100.slurm`
 
 5. **Resume** after timeout:
 

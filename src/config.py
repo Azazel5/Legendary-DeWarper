@@ -23,10 +23,10 @@ def merge_dict(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any
 
 
 def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Phase A DINOv2 document dewarp training")
+    p = argparse.ArgumentParser(description="Phase A/B DINOv2 document dewarp training")
     p.add_argument("--config", type=str, default=None, help="Path to YAML config")
     p.add_argument("--data-dir", type=str, default=None)
-    p.add_argument("--output-root", type=str, default=None, help="Root for experiments/phase_a/... (default: experiments/)")
+    p.add_argument("--output-root", type=str, default=None, help="Root for experiments/<phase>/... (default: experiments/)")
     p.add_argument("--loss-slug", type=str, default=None)
     p.add_argument("--run-version", type=str, default=None, help="Subfolder under runs/; auto if omitted")
     p.add_argument("--resume", type=str, default=None, help="Path to last.pt or epoch checkpoint")

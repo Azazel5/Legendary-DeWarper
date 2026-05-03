@@ -31,6 +31,7 @@ from dataset_loader import UVReconstructionLoss, get_dataloaders
 from src.config import build_config, parse_args, save_resolved_config
 from src.metrics import compute_metrics_package
 from src.models.dinov2_dewarp import Dinov2DewarpNet
+from src.models.phase_b_unet_dewarp import Dinov2UNetDewarpNet
 
 
 def _git_sha() -> str:
@@ -228,8 +229,10 @@ def main(argv: Optional[list] = None) -> None:
     use_bf16 = cfg.get("amp_dtype", "bfloat16").lower() == "bfloat16" and _try_cuda_bf16()
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
+    phase = str(cfg.get("phase", "phase_a"))
+
     print("=" * 72, flush=True)
-    print("Phase A — DINOv2 dewarp training", flush=True)
+    print(f"{phase.upper()} — DINOv2 dewarp training", flush=True)
     print(f"  host     : {platform.node()}", flush=True)
     print(f"  cwd      : {os.getcwd()}", flush=True)
     print(f"  project  : {PROJECT_ROOT}", flush=True)
@@ -258,11 +261,21 @@ def main(argv: Optional[list] = None) -> None:
     print(f"  samples  : train={len(train_loader.dataset)} val={len(val_loader.dataset)}", flush=True)
 
     freeze_epochs = int(cfg.get("freeze_backbone_epochs", 0))
-    model = Dinov2DewarpNet(
-        model_id=cfg["model_id"],
-        img_size=img_size,
-        freeze_backbone=freeze_epochs > 0,
-    ).to(device)
+    if phase == "phase_b":
+        decoder_channels = tuple(cfg.get("decoder_channels", (128, 192, 256)))
+        model = Dinov2UNetDewarpNet(
+            model_id=cfg["model_id"],
+            img_size=img_size,
+            freeze_backbone=freeze_epochs > 0,
+            decoder_channels=decoder_channels,  # type: ignore[arg-type]
+            flow_scale=float(cfg.get("flow_scale", 0.35)),
+        ).to(device)
+    else:
+        model = Dinov2DewarpNet(
+            model_id=cfg["model_id"],
+            img_size=img_size,
+            freeze_backbone=freeze_epochs > 0,
+        ).to(device)
 
     groups = model.trainable_parameter_groups()
     print(f"  params   : encoder_trainable={groups['encoder_trainable']:,} decoder_trainable={groups['decoder_trainable']:,}", flush=True)
