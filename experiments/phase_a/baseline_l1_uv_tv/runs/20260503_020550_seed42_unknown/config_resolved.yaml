@@ -22,3 +22,4 @@ amp_dtype: bfloat16
 seed: 42
 eval_every_epoch: true
 primary_metric: val_ssim_masked
+resume: /cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_a/baseline_l1_uv_tv/runs/20260503_020550_seed42_unknown/checkpoints/last.pt

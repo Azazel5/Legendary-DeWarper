@@ -296,7 +296,7 @@ def main(argv: Optional[list] = None) -> None:
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr, weight_decay=wd)
 
     use_cuda_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
-    scaler = torch.amp.GradScaler(device_type="cuda", enabled=bool(use_cuda_amp and amp_dtype == torch.float16))
+    scaler = torch.cuda.amp.GradScaler(enabled=bool(use_cuda_amp and amp_dtype == torch.float16))
 
     start_epoch = 0
     best_metric = float("-inf")
