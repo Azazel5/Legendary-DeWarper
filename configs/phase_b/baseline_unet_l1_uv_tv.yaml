@@ -33,3 +33,6 @@ seed: 42
 
 eval_every_epoch: true
 primary_metric: val_ssim_masked   # for best.pt selection
+
+# Save epoch_* checkpoints every N epochs (set to 50 to reduce disk usage)
+checkpoint_every: 50

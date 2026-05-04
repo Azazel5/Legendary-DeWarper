@@ -18,6 +18,9 @@ weight_decay: 0.01
 optimizer: adamw
 grad_clip_norm: 1.0
 
+# Save epoch_* checkpoints every N epochs (set to 50 to reduce disk usage)
+checkpoint_every: 50
+
 # Loss weights (UVReconstructionLoss with loss_type l1)
 reconstruction_weight: 1.0
 uv_weight: 0.5

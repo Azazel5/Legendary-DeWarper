@@ -45,6 +45,15 @@ def _git_sha() -> str:
         return "unknown"
 
 
+def _job_tag() -> str:
+    # Prefer scheduler-provided job IDs when available; fall back to local runs.
+    raw = os.environ.get("SLURM_JOB_ID") or os.environ.get("PBS_JOBID") or os.environ.get("JOB_ID")
+    if not raw:
+        return "joblocal"
+    cleaned = "".join(ch for ch in str(raw) if ch.isalnum() or ch in ("-", "_"))
+    return f"job{cleaned}" if cleaned else "joblocal"
+
+
 def _try_cuda_bf16() -> bool:
     if not torch.cuda.is_available():
         return False
@@ -74,7 +83,7 @@ def resolve_run_dir(cfg: Dict[str, Any], resume_path: Optional[str]) -> Path:
             )
         return ckpt.parent.parent
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ver = cfg.get("run_version") or f"{ts}_seed{cfg['seed']}_{_git_sha()}"
+    ver = cfg.get("run_version") or f"{ts}_{_job_tag()}"
     return base / phase / loss_slug / "runs" / ver
 
 
@@ -216,7 +225,21 @@ def main(argv: Optional[list] = None) -> None:
 
     resume_path = cfg.get("resume") or args.resume
     run_dir = resolve_run_dir(cfg, resume_path)
-    ckpt_dir = run_dir / "checkpoints"
+
+    # Allow placing heavy checkpoint files on a writable scratch location.
+    # Set via environment variable `SCRATCH_CHECKPOINT_DIR` or config key `checkpoint_dir`.
+    scratch_root = os.environ.get("SCRATCH_CHECKPOINT_DIR") or cfg.get("checkpoint_dir")
+    if scratch_root:
+        scratch_root = os.path.expanduser(str(scratch_root))
+        try:
+            rel = run_dir.relative_to(PROJECT_ROOT)
+        except Exception:
+            # fallback to using the run_dir name if relative path can't be computed
+            rel = Path(run_dir).name
+        ckpt_dir = Path(scratch_root) / rel / "checkpoints"
+    else:
+        ckpt_dir = run_dir / "checkpoints"
+
     log_dir = run_dir / "logs"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -315,6 +338,7 @@ def main(argv: Optional[list] = None) -> None:
 
     epochs = int(cfg["epochs"])
     grad_clip = float(cfg.get("grad_clip_norm", 1.0))
+    checkpoint_every = int(cfg.get("checkpoint_every", 1))
 
     metrics_jsonl = log_dir / "metrics.jsonl"
 
@@ -378,10 +402,14 @@ def main(argv: Optional[list] = None) -> None:
         }
 
         ep_path = ckpt_dir / f"epoch_{epoch:04d}.pt"
-        atomic_torch_save(payload, ep_path)
-        sz_mb = ep_path.stat().st_size / (1024 * 1024)
-        print(f"  saved checkpoint epoch_{epoch:04d}.pt ({sz_mb:.1f} MB)", flush=True)
+        if checkpoint_every > 0 and (epoch % checkpoint_every == 0):
+            atomic_torch_save(payload, ep_path)
+            sz_mb = ep_path.stat().st_size / (1024 * 1024)
+            print(f"  saved checkpoint epoch_{epoch:04d}.pt ({sz_mb:.1f} MB)", flush=True)
+        else:
+            print(f"  skipping epoch_{epoch:04d}.pt save (checkpoint_every={checkpoint_every})", flush=True)
 
+        # Always keep a rolling `last.pt` for resume; it is overwritten each epoch
         atomic_torch_save(payload, ckpt_dir / "last.pt")
         print(f"  saved last.pt ({ckpt_dir / 'last.pt'})", flush=True)
 
