@@ -56,6 +56,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
+import torch.nn.functional as F
+import torchvision.models as tv_models
 from PIL import Image
 import numpy as np
 
@@ -808,6 +810,49 @@ class SSIMLoss(nn.Module):
         return 1 - ssim_val
 
 
+class VGGPerceptualLoss(nn.Module):
+    """
+    Simple VGG-based perceptual loss using intermediate feature maps.
+
+    Uses pretrained VGG16 features (frozen). Inputs are expected to be
+    ImageNet-normalized (as produced by this dataset loader), so no
+    additional normalization is applied.
+    """
+
+    def __init__(self, device: Optional[torch.device] = None):
+        super().__init__()
+        self.device = device
+        vgg = tv_models.vgg16(pretrained=True).features
+        for p in vgg.parameters():
+            p.requires_grad = False
+        self.vgg = vgg.eval()
+        # choose a small set of layers to compare (conv1_2, conv2_2, conv3_3, conv4_3)
+        self.target_layers = (3, 8, 15, 22)
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.vgg.to(*args, **kwargs)
+        return self
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # x,y: [B,3,H,W] ImageNet-normalized
+        feats_x = []
+        feats_y = []
+        hx = x
+        hy = y
+        for i, module in enumerate(self.vgg):
+            hx = module(hx)
+            hy = module(hy)
+            if i in self.target_layers:
+                feats_x.append(hx)
+                feats_y.append(hy)
+        loss = 0.0
+        for a, b in zip(feats_x, feats_y):
+            loss = loss + F.l1_loss(a, b)
+        loss = loss / max(1, len(feats_x))
+        return loss
+
+
 class UVReconstructionLoss(nn.Module):
     """
     Combined loss for UV-based document reconstruction.
@@ -848,12 +893,14 @@ class UVReconstructionLoss(nn.Module):
         uv_weight: float = 0.0,
         smoothness_weight: float = 0.0,
         use_mask: bool = False,
-        loss_type: str = 'ssim'  # 'l1', 'mse', or 'ssim' (recommended!)
+        loss_type: str = 'ssim',  # 'l1', 'mse', or 'ssim' (recommended!)
+        perceptual_weight: float = 0.0,
     ):
         super().__init__()
         self.reconstruction_weight = reconstruction_weight
         self.uv_weight = uv_weight
         self.smoothness_weight = smoothness_weight
+        self.perceptual_weight = float(perceptual_weight)
 
         # Choose base loss function
         if loss_type == 'ssim':
@@ -865,6 +912,12 @@ class UVReconstructionLoss(nn.Module):
         else:  # mse
             self.recon_loss = MaskedMSELoss(use_mask=use_mask)
             self.use_ssim = False
+
+        # Perceptual loss (optional)
+        if self.perceptual_weight > 0.0:
+            self.perceptual = VGGPerceptualLoss()
+        else:
+            self.perceptual = None
 
     def forward(
         self,
@@ -919,6 +972,11 @@ class UVReconstructionLoss(nn.Module):
             total_loss += self.smoothness_weight * losses['smoothness']
 
         losses['total'] = total_loss
+        # 4. Perceptual (VGG) loss on image space
+        if self.perceptual is not None:
+            losses['perceptual'] = self.perceptual(pred_image, target_image)
+            total_loss = total_loss + self.perceptual_weight * losses['perceptual']
+            losses['total'] = total_loss
         return losses
 
 

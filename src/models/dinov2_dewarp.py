@@ -76,6 +76,8 @@ class Dinov2DewarpNet(nn.Module):
         freeze_backbone: bool = False,
         decoder_channels: Tuple[int, ...] = (256, 128, 64),
         flow_scale: float = 0.35,
+        use_refinement_head: bool = False,
+        refinement_channels: Tuple[int, ...] = (64, 32),
     ):
         super().__init__()
         self.img_h, self.img_w = img_size
@@ -87,6 +89,17 @@ class Dinov2DewarpNet(nn.Module):
             decoder_channels=decoder_channels,
             flow_scale=flow_scale,
         )
+        self.use_refinement_head = bool(use_refinement_head)
+        if self.use_refinement_head:
+            rc = tuple(refinement_channels)
+            # refinement takes concat(dewarped, original) -> residual
+            self.refinement = nn.Sequential(
+                nn.Conv2d(6, rc[0], kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(rc[0], rc[1], kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(rc[1], 3, kernel_size=3, padding=1),
+            )
         if freeze_backbone:
             for p in self.backbone.parameters():
                 p.requires_grad = False
@@ -120,6 +133,12 @@ class Dinov2DewarpNet(nn.Module):
             align_corners=True,
         )
 
+        # Optional refinement head: predict per-pixel residual to correct colors or small errors
+        if self.use_refinement_head:
+            inp = torch.cat([dewarped, pixel_values], dim=1)
+            residual = self.refinement(inp)
+            dewarped = (dewarped + residual).clamp(-1.0, 1.0)
+
         return {
             "dewarped": dewarped,
             "pred_uv": pred_uv,
@@ -137,4 +156,5 @@ class Dinov2DewarpNet(nn.Module):
     def trainable_parameter_groups(self) -> Dict[str, int]:
         enc = sum(p.numel() for p in self.backbone.parameters() if p.requires_grad)
         dec = sum(p.numel() for p in self.decoder.parameters() if p.requires_grad)
+        ref = sum(p.numel() for p in getattr(self, "refinement", nn.Module()).parameters() if p.requires_grad) if self.use_refinement_head else 0
         return {"encoder_trainable": enc, "decoder_trainable": dec}
