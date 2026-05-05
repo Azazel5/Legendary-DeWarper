@@ -15,11 +15,15 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+from torchvision.transforms import InterpolationMode
 
 # Project root (parent of src/)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +36,146 @@ from src.config import build_config, parse_args, save_resolved_config
 from src.metrics import compute_metrics_package
 from src.models.dinov2_dewarp import Dinov2DewarpNet
 from src.models.phase_b_unet_dewarp import Dinov2UNetDewarpNet
+
+
+IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+
+def _denorm_imagenet(x: torch.Tensor) -> torch.Tensor:
+    return (x * IMAGENET_STD.to(x.device) + IMAGENET_MEAN.to(x.device)).clamp(0.0, 1.0)
+
+
+def _norm_imagenet(x01: torch.Tensor) -> torch.Tensor:
+    return (x01 - IMAGENET_MEAN.to(x01.device)) / IMAGENET_STD.to(x01.device)
+
+
+class PhaseDTrainTransform:
+    """Sample-level augmentation wrapper applied only to train subset."""
+
+    def __init__(self, mode: str, geom_type: str = "affine", geom_strength: float = 1.0):
+        self.mode = mode.lower()
+        self.geom_type = geom_type.lower()
+        self.geom_strength = float(geom_strength)
+
+    def __call__(self, sample: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        out = dict(sample)
+        if self.mode == "photometric":
+            out["rgb"] = self._photometric_rgb(out["rgb"])
+        elif self.mode == "geometric":
+            out = self._geometric_sample(out)
+        return out
+
+    def _photometric_rgb(self, rgb_norm: torch.Tensor) -> torch.Tensor:
+        x = _denorm_imagenet(rgb_norm)
+        s = self.geom_strength
+
+        b = float(np.random.uniform(1.0 - 0.15 * s, 1.0 + 0.15 * s))
+        c = float(np.random.uniform(1.0 - 0.20 * s, 1.0 + 0.20 * s))
+        sat = float(np.random.uniform(1.0 - 0.20 * s, 1.0 + 0.20 * s))
+        hue = float(np.random.uniform(-0.03 * s, 0.03 * s))
+
+        x = TF.adjust_brightness(x, b)
+        x = TF.adjust_contrast(x, c)
+        x = TF.adjust_saturation(x, sat)
+        x = TF.adjust_hue(x, hue)
+
+        if np.random.rand() < 0.25:
+            x = TF.gaussian_blur(x, kernel_size=3, sigma=(0.1, 1.0 * s))
+
+        x = x.clamp(0.0, 1.0)
+        return _norm_imagenet(x)
+
+    def _geometric_sample(self, sample: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        keys = [k for k in ("rgb", "ground_truth", "uv", "uv_mask", "border", "depth") if k in sample]
+        if not keys:
+            return sample
+
+        h, w = sample[keys[0]].shape[-2:]
+        t_out = dict(sample)
+
+        if self.geom_type == "perspective":
+            d = min(0.3, 0.05 * self.geom_strength)
+            startpoints, endpoints = T.RandomPerspective.get_params(w, h, distortion_scale=d)
+            for k in keys:
+                interp = InterpolationMode.NEAREST if k in ("uv_mask", "border") else InterpolationMode.BILINEAR
+                t_out[k] = TF.perspective(sample[k], startpoints, endpoints, interpolation=interp, fill=0)
+        elif self.geom_type == "elastic":
+            alpha = max(0.5, 2.5 * self.geom_strength)
+            sigma = max(1.0, 5.0 * self.geom_strength)
+            for k in keys:
+                mode = "nearest" if k in ("uv_mask", "border") else "bilinear"
+                t_out[k] = self._elastic(sample[k], alpha=alpha, sigma=sigma, mode=mode)
+        else:
+            max_angle = 5.0 * self.geom_strength
+            max_trans = int(min(h, w) * (0.02 * self.geom_strength))
+            scale_min = max(0.9, 1.0 - 0.05 * self.geom_strength)
+            scale_max = min(1.1, 1.0 + 0.05 * self.geom_strength)
+            shear = 3.0 * self.geom_strength
+
+            angle = float(np.random.uniform(-max_angle, max_angle))
+            translate = [
+                int(np.random.randint(-max_trans, max_trans + 1)),
+                int(np.random.randint(-max_trans, max_trans + 1)),
+            ]
+            scale = float(np.random.uniform(scale_min, scale_max))
+            shear_xy = [float(np.random.uniform(-shear, shear)), float(np.random.uniform(-shear, shear))]
+
+            for k in keys:
+                interp = InterpolationMode.NEAREST if k in ("uv_mask", "border") else InterpolationMode.BILINEAR
+                t_out[k] = TF.affine(
+                    sample[k],
+                    angle=angle,
+                    translate=translate,
+                    scale=scale,
+                    shear=shear_xy,
+                    interpolation=interp,
+                    fill=0,
+                )
+
+        if "uv_mask" in t_out:
+            t_out["uv_mask"] = (t_out["uv_mask"] > 0.5).float()
+        if "border" in t_out:
+            t_out["border"] = (t_out["border"] > 0.5).float()
+        return t_out
+
+    def _elastic(self, x: torch.Tensor, alpha: float, sigma: float, mode: str) -> torch.Tensor:
+        # Build a smooth random displacement field and warp with grid_sample.
+        h, w = x.shape[-2:]
+        device = x.device
+        k = int(max(3, 2 * round(2.0 * sigma) + 1))
+
+        dx = torch.randn(1, 1, h, w, device=device)
+        dy = torch.randn(1, 1, h, w, device=device)
+        dx = TF.gaussian_blur(dx, kernel_size=[k, k], sigma=[sigma, sigma]) * alpha
+        dy = TF.gaussian_blur(dy, kernel_size=[k, k], sigma=[sigma, sigma]) * alpha
+
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1, 1, h, device=device),
+            torch.linspace(-1, 1, w, device=device),
+            indexing="ij",
+        )
+        grid = torch.stack([xx, yy], dim=-1).unsqueeze(0)
+        grid[..., 0] = grid[..., 0] + dx[0, 0] / max(w / 2.0, 1.0)
+        grid[..., 1] = grid[..., 1] + dy[0, 0] / max(h / 2.0, 1.0)
+
+        out = F.grid_sample(
+            x.unsqueeze(0),
+            grid,
+            mode=mode,
+            padding_mode="border",
+            align_corners=True,
+        )
+        return out.squeeze(0)
+
+
+def build_train_transform(cfg: Dict[str, Any]) -> Optional[Callable[[Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]]:
+    aug = str(cfg.get("augmentation", "none")).lower()
+    if aug in ("", "none", "off", "false"):
+        return None
+    geom_type = str(cfg.get("geom_type", "affine"))
+    geom_strength = float(cfg.get("geom_strength", 1.0))
+    return PhaseDTrainTransform(mode=aug, geom_type=geom_type, geom_strength=geom_strength)
 
 
 def _git_sha() -> str:
@@ -272,6 +416,16 @@ def main(argv: Optional[list] = None) -> None:
     if len(img_size) == 1:
         img_size = (img_size[0], img_size[0])
 
+    train_transform = build_train_transform(cfg)
+    if train_transform is not None:
+        print(
+            f"  augment  : train={cfg.get('augmentation')} geom_type={cfg.get('geom_type', 'n/a')} "
+            f"geom_strength={cfg.get('geom_strength', 1.0)}",
+            flush=True,
+        )
+    else:
+        print("  augment  : train=none", flush=True)
+
     train_loader, val_loader = get_dataloaders(
         data_dir=str(PROJECT_ROOT / cfg["data_dir"]) if not Path(cfg["data_dir"]).is_absolute() else cfg["data_dir"],
         batch_size=int(cfg["batch_size"]),
@@ -280,18 +434,24 @@ def main(argv: Optional[list] = None) -> None:
         use_border=False,
         img_size=img_size,
         num_workers=int(cfg["num_workers"]),
+        random_seed=int(cfg["seed"]),
+        train_transform=train_transform,
+        val_transform=None,
     )
     print(f"  samples  : train={len(train_loader.dataset)} val={len(val_loader.dataset)}", flush=True)
 
     freeze_epochs = int(cfg.get("freeze_backbone_epochs", 0))
     if phase == "phase_b":
         decoder_channels = tuple(cfg.get("decoder_channels", (128, 192, 256)))
+        refinement_channels = tuple(cfg.get("refinement_channels", (64, 32)))
         model = Dinov2UNetDewarpNet(
             model_id=cfg["model_id"],
             img_size=img_size,
             freeze_backbone=freeze_epochs > 0,
             decoder_channels=decoder_channels,  # type: ignore[arg-type]
             flow_scale=float(cfg.get("flow_scale", 0.35)),
+            use_refinement_head=bool(cfg.get("use_refinement_head", False)),
+            refinement_channels=refinement_channels,  # type: ignore[arg-type]
         ).to(device)
     else:
         model = Dinov2DewarpNet(
@@ -308,7 +468,8 @@ def main(argv: Optional[list] = None) -> None:
         uv_weight=float(cfg["uv_weight"]),
         smoothness_weight=float(cfg["smoothness_weight"]),
         use_mask=True,
-        loss_type="l1",
+        loss_type=str(cfg.get("loss_type", "l1")),
+        perceptual_weight=float(cfg.get("perceptual_weight", 0.0)),
     )
 
     lr = float(cfg["lr"])

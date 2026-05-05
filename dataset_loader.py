@@ -279,6 +279,23 @@ class DocumentDataset(Dataset):
         return sample
 
 
+class TransformSubset(Dataset):
+    """Apply a callable transform to samples from an existing subset/dataset."""
+
+    def __init__(self, subset: Dataset, transform: Optional[Callable] = None):
+        self.subset = subset
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.subset)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        sample = self.subset[idx]
+        if self.transform is None:
+            return sample
+        return self.transform(sample)
+
+
 def get_dataloaders(
     data_dir: str,
     batch_size: int = 8,
@@ -289,7 +306,9 @@ def get_dataloaders(
     img_size: Tuple[int, int] = (512, 512),
     num_workers: int = 4,
     shuffle: bool = True,
-    random_seed: int = 42
+    random_seed: int = 42,
+    train_transform: Optional[Callable] = None,
+    val_transform: Optional[Callable] = None,
 ) -> Tuple[DataLoader, DataLoader]:
     """
     Create train and validation dataloaders.
@@ -305,6 +324,8 @@ def get_dataloaders(
         num_workers: Number of worker processes for data loading
         shuffle: Whether to shuffle training data
         random_seed: Random seed for reproducible splits
+        train_transform: Optional sample-level transform applied only to train subset
+        val_transform: Optional sample-level transform applied only to val subset
 
     Returns:
         (train_loader, val_loader): Tuple of DataLoader objects
@@ -330,6 +351,9 @@ def get_dataloaders(
         [train_size, val_size],
         generator=generator
     )
+
+    train_dataset = TransformSubset(train_dataset, transform=train_transform)
+    val_dataset = TransformSubset(val_dataset, transform=val_transform)
 
     print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
 
