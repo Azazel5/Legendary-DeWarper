@@ -1,0 +1,9 @@
+Found 1700 samples in /cluster/home/supadh03/cs 132/Legendary-DeWarper/renders/synthetic_data_pitch_sweep
+Train samples: 1360, Val samples: 340
+GT-UV forward dewarp vs flat GT (upper-bound diagnostic, mean over batches):
+  ms_ssim_full: 0.559582
+  ms_ssim_masked: 0.778591
+  psnr_full: 11.356322
+  psnr_masked: 16.738162
+  ssim_full: 0.589511
+  ssim_masked: 0.808213
