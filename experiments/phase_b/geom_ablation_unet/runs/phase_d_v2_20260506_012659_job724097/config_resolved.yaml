@@ -1,0 +1,37 @@
+phase: phase_b
+loss_slug: geom_ablation_unet
+data_dir: renders/synthetic_data_pitch_sweep
+train_split: 0.8
+batch_size: 4
+num_workers: 4
+img_size:
+- 518
+- 518
+model_id: facebook/dinov2-large
+freeze_backbone_epochs: 0
+decoder_channels:
+- 128
+- 192
+- 256
+flow_scale: 0.35
+loss_type: l1
+reconstruction_weight: 1.0
+uv_weight: 0.5
+smoothness_weight: 0.01
+perceptual_weight: 0.1
+epochs: 100
+lr: 1.0e-05
+weight_decay: 0.01
+optimizer: adamw
+grad_clip_norm: 1.0
+augmentation: geometric
+geom_type: affine
+geom_strength: 1.0
+amp: true
+amp_dtype: bfloat16
+seed: 42
+eval_every_epoch: true
+primary_metric: val_ssim_masked
+checkpoint_every: 10
+init_weights_from: experiments/phase_b/baseline_unet_l1_uv_tv_perceptual/runs/20260505_022425_job719822/checkpoints/best.pt
+run_version: phase_d_v2_20260506_012659_job724097

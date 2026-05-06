@@ -943,6 +943,13 @@ class UVReconstructionLoss(nn.Module):
         else:
             self.perceptual = None
 
+    def to(self, *args, **kwargs):
+        """Override to() to ensure perceptual loss is moved to device."""
+        super().to(*args, **kwargs)
+        if self.perceptual is not None:
+            self.perceptual.to(*args, **kwargs)
+        return self
+
     def forward(
         self,
         pred_image: torch.Tensor,

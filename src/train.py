@@ -470,7 +470,7 @@ def main(argv: Optional[list] = None) -> None:
         use_mask=True,
         loss_type=str(cfg.get("loss_type", "l1")),
         perceptual_weight=float(cfg.get("perceptual_weight", 0.0)),
-    )
+    ).to(device)
 
     lr = float(cfg["lr"])
     wd = float(cfg["weight_decay"])
