@@ -496,6 +496,16 @@ def main(argv: Optional[list] = None) -> None:
         start_epoch = int(ckpt.get("epoch", -1)) + 1
         best_metric = float(ckpt.get("best_metric", float("-inf")))
         print(f"  resumed  : start_epoch={start_epoch} best_{primary}={best_metric}", flush=True)
+    elif cfg.get("init_weights_from"):
+        # Load model weights only (no epoch/optimizer state), start fresh from epoch 0
+        init_path = Path(cfg["init_weights_from"])
+        if init_path.exists():
+            init_ckpt = torch.load(init_path, map_location="cpu", weights_only=False)
+            model.load_state_dict(init_ckpt["model_state_dict"], strict=True)
+            print(f"  initialized: loaded weights from {init_path}", flush=True)
+            # start_epoch and best_metric remain 0 / -inf (fresh training)
+        else:
+            raise FileNotFoundError(f"init_weights_from path not found: {init_path}")
 
     epochs = int(cfg["epochs"])
     grad_clip = float(cfg.get("grad_clip_norm", 1.0))
