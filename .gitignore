@@ -220,3 +220,7 @@ __marimo__/
 renders
 slurm_logs/
 checkpoints
+experiments/**/runs/**/eval/panels/
+experiments/**/runs/**/flow_diagrams/
+experiments/**/runs/**/eval_*/panels/
+experiments/**/runs/**/flow_diagrams_*/

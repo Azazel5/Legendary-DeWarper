@@ -1,0 +1,18 @@
+{
+  "psnr_full": 8.085838772268856,
+  "ssim_full": 0.381366128430647,
+  "ms_ssim_full": 0.28679578356883106,
+  "psnr_masked": 18.887840158799115,
+  "ssim_masked": 0.7744649157804602,
+  "ms_ssim_masked": 0.7557674078380361,
+  "uv_l1_full": 0.2399048345930436,
+  "uv_l1_masked": 0.009351109280524884,
+  "num_val_batches": 85,
+  "num_val_samples": 340,
+  "saved_panels": 32,
+  "checkpoint": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/finetune_unet_photometric/runs/phase_d_v1_20260506_012659_job724096/checkpoints/best.pt",
+  "train_split": 0.8,
+  "seed": 42,
+  "flow_dir": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/finetune_unet_photometric/runs/phase_d_v1_20260506_012659_job724096/flow_diagrams",
+  "eval_dir": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/finetune_unet_photometric/runs/phase_d_v1_20260506_012659_job724096/eval"
+}

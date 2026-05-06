@@ -1,0 +1,18 @@
+{
+  "psnr_full": 8.218160208533792,
+  "ssim_full": 0.3856616220053504,
+  "ms_ssim_full": 0.29370328170411725,
+  "psnr_masked": 18.902086796480067,
+  "ssim_masked": 0.774560607882107,
+  "ms_ssim_masked": 0.7561693836660947,
+  "uv_l1_full": 0.21807754180010627,
+  "uv_l1_masked": 0.009505664381910773,
+  "num_val_batches": 85,
+  "num_val_samples": 340,
+  "saved_panels": 32,
+  "checkpoint": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/geom_ablation_unet/runs/phase_d_v2_20260506_012659_job724097/checkpoints/best.pt",
+  "train_split": 0.8,
+  "seed": 42,
+  "flow_dir": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/geom_ablation_unet/runs/phase_d_v2_20260506_012659_job724097/flow_diagrams",
+  "eval_dir": "/cluster/home/supadh03/cs 132/Legendary-DeWarper/experiments/phase_b/geom_ablation_unet/runs/phase_d_v2_20260506_012659_job724097/eval"
+}
